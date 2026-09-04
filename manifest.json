@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "lunardi0x01.razer-peripherals",
+  "name": "Omarchy Razer Peripherals",
+  "version": "0.1.0",
+  "author": "James Lunardi",
+  "license": "MIT",
+  "description": "Battery levels for your Razer keyboard and mouse, plus persistent (on-device) lighting colour control.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "bar_widget.qml"
+  },
+  "barWidget": {
+    "displayName": "Razer Peripherals",
+    "description": "Razer keyboard/mouse battery and lighting",
+    "category": "Peripherals",
+    "allowMultiple": false
+  }
+}
