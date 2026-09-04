@@ -66,6 +66,18 @@ KNOWN_DEVICES = {
     "258": "BlackWidow V3 Mini (wired)",
 }
 
+# Which physical slot a known PID occupies, so the bar widget can show a
+# keyboard reading and a mouse reading side by side rather than just
+# "whichever of the N devices is lowest". An unrecognized PID (see
+# README.md's hardware-scope disclosure) has no slot -- it still shows up
+# in the panel's device list, just not pinned to either bar position.
+DEVICE_KIND = {
+    "E7": "mouse",
+    "E8": "mouse",
+    "B4": "keyboard",
+    "258": "keyboard",
+}
+
 STATUS_SUCCESS = 0x02
 
 _PID_RE = re.compile(r"[0-9A-Fa-f]{1,4}")
@@ -153,6 +165,10 @@ def discover():
 
 def device_name(pid):
     return KNOWN_DEVICES.get(pid, "1532:%s" % pid)
+
+
+def device_kind(pid):
+    return DEVICE_KIND.get(pid, "unknown")
 
 
 def read_battery(path, txn):
@@ -287,6 +303,7 @@ def _get_status():
         devices.append({
             "pid": pid,
             "name": device_name(pid),
+            "kind": device_kind(pid),
             "percent": entry.get("percent"),
             "charging": entry.get("charging", False),
             "lastColor": entry.get("lastColor", ""),
@@ -301,6 +318,7 @@ def _get_status():
         devices.append({
             "pid": pid,
             "name": entry.get("name", device_name(pid)),
+            "kind": device_kind(pid),
             "percent": entry.get("percent"),
             "charging": entry.get("charging", False),
             "lastColor": entry.get("lastColor", ""),

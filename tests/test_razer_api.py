@@ -95,6 +95,19 @@ class DeviceNameTests(unittest.TestCase):
         self.assertEqual(ra.device_name("1234"), "1532:1234")
 
 
+class DeviceKindTests(unittest.TestCase):
+    def test_mouse_pids(self):
+        self.assertEqual(ra.device_kind("E7"), "mouse")
+        self.assertEqual(ra.device_kind("E8"), "mouse")
+
+    def test_keyboard_pids(self):
+        self.assertEqual(ra.device_kind("B4"), "keyboard")
+        self.assertEqual(ra.device_kind("258"), "keyboard")
+
+    def test_unknown_pid(self):
+        self.assertEqual(ra.device_kind("1234"), "unknown")
+
+
 class ReadBatteryTests(unittest.TestCase):
     def test_parses_percent_and_charging(self):
         def fake_send(path, report):
@@ -214,6 +227,7 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual(payload["devices"][0]["pid"], "E8")
         self.assertEqual(payload["devices"][0]["percent"], 50.0)
         self.assertTrue(payload["devices"][0]["responsive"])
+        self.assertEqual(payload["devices"][0]["kind"], "mouse")
 
     def test_get_status_falls_back_to_last_known_for_sleeping_device(self):
         ra._save_state({"devices": {"E8": {"name": "Naga V3 Pro (dongle)",
@@ -226,6 +240,7 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual(len(payload["devices"]), 1)
         self.assertFalse(payload["devices"][0]["responsive"])
         self.assertEqual(payload["devices"][0]["percent"], 61.2)
+        self.assertEqual(payload["devices"][0]["kind"], "mouse")
 
     def test_set_color_rejects_malformed_pid_or_color(self):
         with self.assertRaises(SystemExit):

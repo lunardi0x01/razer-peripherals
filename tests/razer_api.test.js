@@ -80,6 +80,45 @@ test("parseStatus drops entries with an invalid pid", () => {
   assert.deepEqual(RazerApi.parseStatus(text), [])
 })
 
+test("parseStatus passes through a valid kind and falls back to unknown otherwise", () => {
+  const text = JSON.stringify({
+    devices: [
+      { pid: "E8", name: "a", kind: "mouse" },
+      { pid: "B4", name: "b", kind: "keyboard" },
+      { pid: "1234", name: "c", kind: "spaceship" },
+      { pid: "5678", name: "d" },
+    ],
+  })
+  const devices = RazerApi.parseStatus(text)
+  assert.equal(devices[0].kind, "mouse")
+  assert.equal(devices[1].kind, "keyboard")
+  assert.equal(devices[2].kind, "unknown")
+  assert.equal(devices[3].kind, "unknown")
+})
+
+test("deviceIcon returns a distinct glyph per known kind and falls back for unknown", () => {
+  const kbd = RazerApi.deviceIcon("keyboard")
+  const mouse = RazerApi.deviceIcon("mouse")
+  const unknown = RazerApi.deviceIcon("unknown")
+  const bogus = RazerApi.deviceIcon("not-a-kind")
+  assert.notEqual(kbd, mouse)
+  assert.equal(bogus, unknown)
+  assert.ok(kbd.length > 0)
+  assert.ok(mouse.length > 0)
+})
+
+test("findByKind returns the first matching device or null", () => {
+  const devices = [
+    { pid: "B4", kind: "keyboard" },
+    { pid: "E8", kind: "mouse" },
+  ]
+  assert.equal(RazerApi.findByKind(devices, "mouse").pid, "E8")
+  assert.equal(RazerApi.findByKind(devices, "keyboard").pid, "B4")
+  assert.equal(RazerApi.findByKind(devices, "unknown"), null)
+  assert.equal(RazerApi.findByKind([], "mouse"), null)
+  assert.equal(RazerApi.findByKind(null, "mouse"), null)
+})
+
 test("parseStatus clamps out-of-range percent and treats non-numbers as null", () => {
   const text = JSON.stringify({
     devices: [

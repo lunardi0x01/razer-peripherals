@@ -226,6 +226,14 @@ Panel {
 
                 Text {
                   anchors.verticalCenter: parent.verticalCenter
+                  text: RazerApi.deviceIcon(modelData.kind)
+                  color: root.bar.foreground
+                  font.family: root.bar.fontFamily
+                  font.pixelSize: Style.font.body
+                }
+
+                Text {
+                  anchors.verticalCenter: parent.verticalCenter
                   text: modelData.name
                   textFormat: Text.PlainText
                   color: root.bar.foreground
