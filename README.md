@@ -37,9 +37,27 @@ devices accept `VARSTORE` writes and silently discard them — if a colour
 change doesn't stick after a sleep cycle, that's the likely reason, not a
 bug in this plugin.
 
-**No root required.** `systemd-logind` grants the logged-in session user an
-ACL on these hidraw nodes via the `uaccess` udev tag, because both device
-types are bound to the seat as input devices.
+**Needs a one-time udev rule** — install it before pairing anything:
+
+```sh
+sudo cp udev/99-razer-hidraw.rules /etc/udev/rules.d/
+sudo usermod -aG uucp "$USER"
+sudo udevadm control --reload-rules
+```
+
+Then log out and back in (group membership is fixed at login), and unplug/
+replug both devices (or reboot) so they re-enumerate under the new rule.
+Without this, `razer_api.py` can only read/write these devices as root.
+
+The rule *also* sets `TAG+="uaccess"`, which is meant to grant this
+automatically via `systemd-logind`'s per-session device ACLs with no group/
+install step at all — that's the documented "just works" mechanism, and it
+may be all you need. It was verified **not** to reliably fire on at least
+one real machine (Arch + systemd 261: a genuine hotplug correctly tagged
+the device, but no per-user ACL was actually added — a manual `setfacl` on
+the same node worked fine, ruling out a filesystem/ACL-support problem).
+`GROUP="uucp"` is the fallback this plugin actually depends on; see
+`udev/99-razer-hidraw.rules` for the full writeup.
 
 ## Flash writes — read before mashing Apply
 
@@ -50,6 +68,10 @@ a colour automatically or on a timer — only on an explicit press of
 not as something to spam while picking a shade.
 
 ## Install
+
+Install the udev rule first (see "Hardware scope" above) — without it the
+panel will discover your devices but every battery read and colour write
+will fail.
 
 ```sh
 omarchy plugin add https://github.com/lunardi0x01/razer-peripherals.git --enable

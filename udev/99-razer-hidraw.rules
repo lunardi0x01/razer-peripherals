@@ -1,0 +1,27 @@
+# Grants access to Razer (vendor 1532) HID feature-report interfaces --
+# without this, razer_api.py can only read battery / write persistent
+# colour as root.
+#
+# TAG+="uaccess" asks systemd-logind's normal per-session device-ACL
+# mechanism to grant the active seat's user access automatically, with no
+# group/install step needed. That's the documented, "just works" path and
+# is worth keeping as a first attempt.
+#
+# GROUP="uucp" is the fallback actually being relied on: on at least one
+# real machine (Arch + systemd 261), a genuine USB hotplug correctly
+# tagged the device `uaccess` (confirmed via `udevadm info`) and MODE=0660
+# applied, but systemd-udevd's uaccess builtin never actually added the
+# per-user ACL entry -- confirmed by comparison with a device that gets
+# its ACL at boot (e.g. /dev/snd/*, which had one) vs. one hotplugged
+# later (which didn't), and confirmed a manual `setfacl` on the same node
+# worked fine, ruling out a filesystem/ACL-support problem. Root cause not
+# fully diagnosed; GROUP="uucp" sidesteps it entirely since it doesn't
+# depend on that builtin.
+#
+# Install:
+#   sudo cp udev/99-razer-hidraw.rules /etc/udev/rules.d/
+#   sudo usermod -aG uucp "$USER"
+#   sudo udevadm control --reload-rules
+#   Then log out and back in (group membership is fixed at login) and
+#   replug both devices (or reboot) so they re-enumerate under the new rule.
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1532", MODE="0660", GROUP="uucp", TAG+="uaccess"
