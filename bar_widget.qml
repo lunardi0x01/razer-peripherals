@@ -19,6 +19,27 @@ BarWidget {
     if (panelLoader.item && panelLoader.item.toggle) panelLoader.item.toggle()
   }
 
+  // KeyboardPanel.close() checks `"close" in owner` and, finding neither
+  // open() nor close() here, falls back to imperatively assigning its own
+  // internal `open` property directly -- which permanently breaks the
+  // one-way `open: root.opened` binding declared in panel.qml's
+  // KeyboardPanel instance (any imperative assignment to a bound property
+  // detaches the binding in QML). Once that binding is broken, this
+  // widget's own open()/close()/toggle() keep updating root.opened
+  // correctly, but it never reaches the visible window again until the
+  // shell restarts -- exactly the "closes once via outside-click, then
+  // never reopens" bug this fixes. Defining open()/close() here (mirroring
+  // Hue's bar_widget.qml) makes KeyboardPanel route every close through
+  // Panel.close() -> panelController.hide() instead, so the binding is
+  // never touched imperatively from outside panel.qml.
+  function open() {
+    if (panelLoader.item && panelLoader.item.open) panelLoader.item.open()
+  }
+
+  function close() {
+    if (panelLoader.item && panelLoader.item.close) panelLoader.item.close()
+  }
+
   readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
   readonly property bool popoutSwitchClosing: panelLoader.item ? panelLoader.item.popoutSwitchClosing === true : false
   readonly property var devices: panelLoader.item ? panelLoader.item.devices : []
@@ -34,10 +55,10 @@ BarWidget {
   // right for Hue/Ring's one-glyph icons but clips a wider two-device
   // readout.
   readonly property string displayText:
-    RazerApi.deviceIcon("keyboard") + " " +
+    RazerApi.deviceIcon("keyboard") + "  " +
     RazerApi.formatPercent(root.keyboardDevice ? root.keyboardDevice.percent : null) +
-    " | " +
-    RazerApi.deviceIcon("mouse") + " " +
+    "  |  " +
+    RazerApi.deviceIcon("mouse") + "  " +
     RazerApi.formatPercent(root.mouseDevice ? root.mouseDevice.percent : null)
 
   visible: true

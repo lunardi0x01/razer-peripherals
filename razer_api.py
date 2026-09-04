@@ -113,12 +113,42 @@ def make_report(txn, cmd_class, cmd_id, data_size, args=()):
     return r
 
 
+LOCK_TIMEOUT_SECONDS = 2
+
+
+def _acquire_lock_bounded(fd, timeout=LOCK_TIMEOUT_SECONDS):
+    # Non-blocking flock in a bounded retry loop, not a plain blocking
+    # LOCK_EX -- a wedged sibling process holding the lock would otherwise
+    # stall this call (and the panel behind it) forever, the same DoS shape
+    # avoided elsewhere in this codebase's settings-file locking.
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except OSError:
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.01)
+
+
 def send(path, report, settle=0.06):
     # O_NONBLOCK: a sleeping wireless device's node can otherwise hang the
     # open() call rather than failing fast -- this must never block the
     # panel indefinitely just because a peripheral is asleep.
     fd = os.open(path, os.O_RDWR | os.O_NONBLOCK)
     try:
+        # Two shell instances (one per monitor) each run their own poll
+        # timer against the same hidraw node with no other coordination --
+        # confirmed on real hardware that concurrent, unlocked SET_FEATURE/
+        # GET_FEATURE pairs interleave and corrupt each other's reply
+        # (observed: a battery read racing another process's in-flight
+        # request came back as a different device's reading entirely).
+        # flock on the fd serializes the whole request/reply pair across
+        # processes; it's released automatically when the fd closes below,
+        # so there's no separate unlock path to forget.
+        if not _acquire_lock_bounded(fd):
+            raise OSError("timed out waiting for another process's HID request")
         fcntl.ioctl(fd, _set_feature(BUF_LEN), bytearray([0x00]) + report)
         time.sleep(settle)
         buf = bytearray([0x00]) + bytearray(REPORT_LEN)

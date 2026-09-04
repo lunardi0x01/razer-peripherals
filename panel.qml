@@ -161,39 +161,25 @@ Panel {
           width: scroll.width
           spacing: Style.space(10)
 
-          Row {
+          Column {
             width: parent.width
-            spacing: Style.space(10)
+            spacing: Style.space(2)
 
             Text {
-              anchors.verticalCenter: parent.verticalCenter
-              text: "" // nf-fa-keyboard -- verify against the installed
-                              // Nerd Font build once loaded in a live shell
+              text: "Razer Peripherals"
               color: root.bar.foreground
               font.family: root.bar.fontFamily
               font.pixelSize: Style.font.title
+              font.bold: true
             }
 
-            Column {
-              anchors.verticalCenter: parent.verticalCenter
-              spacing: Style.space(2)
-
-              Text {
-                text: "Razer Peripherals"
-                color: root.bar.foreground
-                font.family: root.bar.fontFamily
-                font.pixelSize: Style.font.title
-                font.bold: true
-              }
-
-              Text {
-                visible: root.statusText.length > 0
-                text: root.statusText
-                textFormat: Text.PlainText
-                color: Qt.darker(root.bar.foreground, 1.4)
-                font.family: root.bar.fontFamily
-                font.pixelSize: Style.font.caption
-              }
+            Text {
+              visible: root.statusText.length > 0
+              text: root.statusText
+              textFormat: Text.PlainText
+              color: Qt.darker(root.bar.foreground, 1.4)
+              font.family: root.bar.fontFamily
+              font.pixelSize: Style.font.caption
             }
           }
 

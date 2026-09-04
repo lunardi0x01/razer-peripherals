@@ -10,6 +10,77 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import razer_api as ra
 
 
+class LockingTests(unittest.TestCase):
+    def test_acquires_uncontended_lock_immediately(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "node")
+            open(path, "w").close()
+            fd = os.open(path, os.O_RDWR)
+            try:
+                start = ra.time.monotonic()
+                self.assertTrue(ra._acquire_lock_bounded(fd, timeout=1))
+                self.assertLess(ra.time.monotonic() - start, 0.5)
+            finally:
+                os.close(fd)
+
+    def test_times_out_when_already_locked_by_another_fd(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "node")
+            open(path, "w").close()
+            holder_fd = os.open(path, os.O_RDWR)
+            ra.fcntl.flock(holder_fd, ra.fcntl.LOCK_EX)
+            try:
+                waiter_fd = os.open(path, os.O_RDWR)
+                try:
+                    start = ra.time.monotonic()
+                    self.assertFalse(ra._acquire_lock_bounded(waiter_fd, timeout=0.2))
+                    self.assertGreaterEqual(ra.time.monotonic() - start, 0.2)
+                finally:
+                    os.close(waiter_fd)
+            finally:
+                os.close(holder_fd)
+
+    def test_send_serializes_concurrent_transactions_without_corrupting_replies(self):
+        # Regression test for a real bug found on live hardware: two
+        # unlocked concurrent send() calls to the same node interleaved
+        # their SET_FEATURE/GET_FEATURE pairs and one process read back a
+        # reply meant for the other's request. Simulates two callers
+        # racing on the same fd by holding the lock from a background
+        # thread while the real send() is in flight, and asserts send()
+        # only proceeds with its ioctl calls after the lock is released --
+        # not that it silently reads through the contended window.
+        import threading
+
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "node")
+            open(path, "w").close()
+            blocker_fd = os.open(path, os.O_RDWR)
+            ra.fcntl.flock(blocker_fd, ra.fcntl.LOCK_EX)
+
+            release_after = 0.05
+            timer = threading.Timer(release_after, lambda: (ra.fcntl.flock(blocker_fd, ra.fcntl.LOCK_UN), os.close(blocker_fd)))
+            timer.start()
+
+            ioctl_calls = []
+
+            def fake_ioctl(fd, request, buf):
+                ioctl_calls.append(ra.time.monotonic())
+
+            waiter_fd = os.open(path, os.O_RDWR)
+            try:
+                with mock.patch.object(ra.fcntl, "ioctl", side_effect=fake_ioctl), \
+                     mock.patch.object(ra.os, "open", return_value=waiter_fd), \
+                     mock.patch.object(ra.os, "close"):
+                    start = ra.time.monotonic()
+                    ra.send(path, bytearray(ra.REPORT_LEN), settle=0)
+                timer.join()
+            finally:
+                os.close(waiter_fd)
+
+            self.assertEqual(len(ioctl_calls), 2)
+            self.assertGreaterEqual(ioctl_calls[0] - start, release_after - 0.02)
+
+
 class MakeReportTests(unittest.TestCase):
     def test_length_and_header_fields(self):
         r = ra.make_report(0x1F, 0x07, 0x80, 0x02, (0x01, 0x02))
