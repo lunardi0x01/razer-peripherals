@@ -1,10 +1,13 @@
 import QtQuick
+import qs.Commons
 import qs.Ui
 import "razer_api.js" as RazerApi
 
 BarWidget {
   id: root
   moduleName: "lunardi0x01.razer-peripherals"
+
+  readonly property int lowBatteryThreshold: 25
 
   function injectPanel() {
     var target = panelLoader.item
@@ -47,19 +50,16 @@ BarWidget {
   readonly property var keyboardDevice: RazerApi.findByKind(root.devices, "keyboard")
   readonly property var mouseDevice: RazerApi.findByKind(root.devices, "mouse")
 
-  // "<kbd icon> <kbd %> | <mouse icon> <mouse %>" -- both slots always show
-  // (icon plus a placeholder if that device has never been seen) so the
-  // layout doesn't jump around as devices go to sleep and wake back up.
-  // Uses a plain WidgetButton rather than BarIconButton: BarIconButton
-  // forces a single fixed-width icon slot on a horizontal bar, which is
-  // right for Hue/Ring's one-glyph icons but clips a wider two-device
-  // readout.
-  readonly property string displayText:
-    RazerApi.deviceIcon("keyboard") + "  " +
-    RazerApi.formatPercent(root.keyboardDevice ? root.keyboardDevice.percent : null) +
-    "  |  " +
-    RazerApi.deviceIcon("mouse") + "  " +
-    RazerApi.formatPercent(root.mouseDevice ? root.mouseDevice.percent : null)
+  function iconColorFor(device) {
+    if (device && typeof device.percent === "number" && device.percent < root.lowBatteryThreshold) {
+      return root.bar ? root.bar.urgent : Color.urgent
+    }
+    return root.bar ? root.bar.barForeground : Color.foreground
+  }
+
+  readonly property string tooltipText:
+    "Keyboard " + RazerApi.formatPercent(root.keyboardDevice ? root.keyboardDevice.percent : null) +
+    "  |  Mouse " + RazerApi.formatPercent(root.mouseDevice ? root.mouseDevice.percent : null)
 
   visible: true
   implicitWidth: button.implicitWidth
@@ -79,12 +79,44 @@ BarWidget {
     }
   }
 
+  // Plain WidgetButton rather than BarIconButton: BarIconButton's `text`
+  // renders through a single Text element with one color, which can't show
+  // the keyboard and mouse glyphs in two independent colors (each needs to
+  // turn red on its own low-battery threshold, independent of the other).
+  // labelVisible is off since WidgetButton's own single-Text label is
+  // unused -- iconRow below is the real content, sized explicitly via
+  // fixedWidth/fixedHeight since an invisible empty label has no size to
+  // drive the button's own auto-sizing.
   WidgetButton {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: root.displayText
-    tooltipText: "Razer peripherals"
+    labelVisible: false
+    hasVisualContent: true
+    fixedWidth: iconRow.implicitWidth + scaledHorizontalMargin * 2
+    tooltipText: root.tooltipText
+
+    Row {
+      id: iconRow
+      anchors.centerIn: parent
+      spacing: Style.space(6)
+
+      Text {
+        anchors.verticalCenter: parent.verticalCenter
+        text: RazerApi.deviceIcon("keyboard")
+        color: root.iconColorFor(root.keyboardDevice)
+        font.family: button.fontFamily
+        font.pixelSize: button.fontSize
+      }
+
+      Text {
+        anchors.verticalCenter: parent.verticalCenter
+        text: RazerApi.deviceIcon("mouse")
+        color: root.iconColorFor(root.mouseDevice)
+        font.family: button.fontFamily
+        font.pixelSize: button.fontSize
+      }
+    }
 
     onPressed: function(b) {
       if (b === Qt.LeftButton) root.togglePanel()
