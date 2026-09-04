@@ -22,7 +22,7 @@ BarWidget {
   readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
   readonly property bool popoutSwitchClosing: panelLoader.item ? panelLoader.item.popoutSwitchClosing === true : false
   readonly property var devices: panelLoader.item ? panelLoader.item.devices : []
-  readonly property real lowestPercent: panelLoader.item ? panelLoader.item.lowestPercent : null
+  readonly property var lowestPercent: panelLoader.item ? panelLoader.item.lowestPercent : null
 
   visible: true
   implicitWidth: button.implicitWidth

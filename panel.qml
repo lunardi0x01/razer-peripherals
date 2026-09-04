@@ -23,7 +23,7 @@ Panel {
   property string applyingPid: ""
   property var pendingHexByPid: ({})
 
-  readonly property real lowestPercent: {
+  readonly property var lowestPercent: {
     var lowest = null
     for (var i = 0; i < root.devices.length; i++) {
       var p = root.devices[i].percent
@@ -74,12 +74,27 @@ Panel {
 
   onOpenedChanged: if (opened) root.refresh()
 
+  // Unlike Hue (whose bar icon carries no live data), this plugin's bar
+  // icon itself shows the lowest battery %, so waiting for the panel to be
+  // opened before ever fetching would leave the bar icon blank all
+  // session -- fetch once at startup regardless of panel state.
+  Component.onCompleted: root.refresh()
+
   Timer {
-    // Battery drains slowly; there's no reason to poll hidraw as fast as
-    // Hue polls a bridge. Only runs while the panel is open.
+    // Fast poll while the panel is open, for a responsive-feeling UI.
     interval: 20000
     repeat: true
     running: root.opened
+    onTriggered: root.refresh()
+  }
+
+  Timer {
+    // Slow background poll so the bar icon's percentage doesn't go stale
+    // for an entire shell session just because the panel was never
+    // reopened -- battery drains over hours, so 5 minutes is plenty.
+    interval: 300000
+    repeat: true
+    running: true
     onTriggered: root.refresh()
   }
 
