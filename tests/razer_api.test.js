@@ -96,6 +96,42 @@ test("parseStatus passes through a valid kind and falls back to unknown otherwis
   assert.equal(devices[3].kind, "unknown")
 })
 
+test("parseStatus passes through a known connection and blanks an unknown one", () => {
+  const text = JSON.stringify({
+    devices: [
+      { pid: "258", name: "BlackWidow V3 Mini", connection: "wired" },
+      { pid: "B4", name: "BlackWidow V3 Mini", connection: "wireless" },
+      { pid: "1234", name: "1532:1234", connection: "telepathy" },
+      { pid: "5678", name: "1532:5678" },
+    ],
+  })
+  const devices = RazerApi.parseStatus(text)
+  assert.equal(devices[0].connection, "wired")
+  assert.equal(devices[1].connection, "wireless")
+  assert.equal(devices[2].connection, "")
+  assert.equal(devices[3].connection, "")
+})
+
+test("parseStatus keeps the device id and falls back to the pid without one", () => {
+  const text = JSON.stringify({
+    devices: [
+      { pid: "258", id: "BlackWidow V3 Mini", name: "BlackWidow V3 Mini" },
+      { pid: "E8", name: "Naga V3 Pro" },
+    ],
+  })
+  const devices = RazerApi.parseStatus(text)
+  assert.equal(devices[0].id, "BLACKWIDOW V3 MINI")
+  assert.equal(devices[1].id, "E8")
+})
+
+test("connectionLabel renders only the two real connection states", () => {
+  assert.equal(RazerApi.connectionLabel("wired"), "wired")
+  assert.equal(RazerApi.connectionLabel("wireless"), "wireless")
+  assert.equal(RazerApi.connectionLabel(""), "")
+  assert.equal(RazerApi.connectionLabel("telepathy"), "")
+  assert.equal(RazerApi.connectionLabel(undefined), "")
+})
+
 test("deviceIcon returns a distinct glyph per known kind and falls back for unknown", () => {
   const kbd = RazerApi.deviceIcon("keyboard")
   const mouse = RazerApi.deviceIcon("mouse")

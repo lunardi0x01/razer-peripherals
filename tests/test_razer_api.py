@@ -159,11 +159,44 @@ class DiscoverTests(unittest.TestCase):
 
 
 class DeviceNameTests(unittest.TestCase):
-    def test_known_pid_uses_friendly_name(self):
-        self.assertEqual(ra.device_name("E8"), "Naga V3 Pro (dongle)")
+    def test_known_pid_uses_friendly_model_name_without_connection_suffix(self):
+        # Both of a model's PIDs share one name -- how it's attached is
+        # reported separately (device_connection), not baked into the name.
+        self.assertEqual(ra.device_name("E8"), "Naga V3 Pro")
+        self.assertEqual(ra.device_name("E7"), "Naga V3 Pro")
 
     def test_unknown_pid_falls_back_to_raw_id(self):
         self.assertEqual(ra.device_name("1234"), "1532:1234")
+
+
+class DeviceConnectionTests(unittest.TestCase):
+    def test_known_pids_report_how_they_are_attached(self):
+        self.assertEqual(ra.device_connection("E7"), "wired")
+        self.assertEqual(ra.device_connection("E8"), "wireless")
+        self.assertEqual(ra.device_connection("258"), "wired")
+        self.assertEqual(ra.device_connection("B4"), "wireless")
+
+    def test_unknown_pid_claims_nothing(self):
+        self.assertEqual(ra.device_connection("1234"), "")
+
+
+class DeviceGroupTests(unittest.TestCase):
+    def test_both_pids_of_a_model_share_a_group(self):
+        self.assertEqual(ra.device_group("E7"), ra.device_group("E8"))
+        self.assertEqual(ra.device_group("258"), ra.device_group("B4"))
+
+    def test_different_models_do_not_share_a_group(self):
+        self.assertNotEqual(ra.device_group("E7"), ra.device_group("B4"))
+
+    def test_unknown_pids_are_each_their_own_group(self):
+        self.assertNotEqual(ra.device_group("1234"), ra.device_group("5678"))
+
+    def test_group_pids_lists_both_interfaces_of_a_known_model(self):
+        self.assertEqual(ra.group_pids("E8"), ["E7", "E8"])
+        self.assertEqual(ra.group_pids("B4"), ["258", "B4"])
+
+    def test_group_pids_of_unknown_pid_is_just_itself(self):
+        self.assertEqual(ra.group_pids("1234"), ["1234"])
 
 
 class DeviceKindTests(unittest.TestCase):
@@ -177,6 +210,81 @@ class DeviceKindTests(unittest.TestCase):
 
     def test_unknown_pid(self):
         self.assertEqual(ra.device_kind("1234"), "unknown")
+
+
+class MergeDevicesTests(unittest.TestCase):
+    def record(self, pid, percent=None, responsive=False, charging=False,
+               last_color="", updated=0):
+        return ra._device_record(
+            pid,
+            {"percent": percent, "charging": charging, "lastColor": last_color,
+             "updatedAt": updated},
+            responsive,
+        )
+
+    def test_live_wired_interface_wins_over_a_remembered_wireless_one(self):
+        # The reported bug: plugging the keyboard in listed it twice, the
+        # receiver still showing the 5% it last reported while the cable
+        # showed 100%.
+        merged = ra._merge_devices([
+            self.record("B4", percent=5.0, responsive=False, updated=100),
+            self.record("258", percent=100.0, responsive=True, charging=True, updated=200),
+        ])
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]["pid"], "258")
+        self.assertEqual(merged[0]["percent"], 100.0)
+        self.assertEqual(merged[0]["connection"], "wired")
+        self.assertEqual(merged[0]["name"], "BlackWidow V3 Mini")
+        self.assertTrue(merged[0]["responsive"])
+
+    def test_wireless_represents_the_device_when_the_cable_is_out(self):
+        merged = ra._merge_devices([
+            self.record("258", percent=100.0, responsive=False, updated=100),
+            self.record("E8", percent=62.0, responsive=True, updated=200),
+            self.record("B4", percent=48.0, responsive=True, updated=200),
+        ])
+        by_kind = {d["kind"]: d for d in merged}
+        self.assertEqual(by_kind["keyboard"]["connection"], "wireless")
+        self.assertEqual(by_kind["keyboard"]["percent"], 48.0)
+        self.assertEqual(by_kind["mouse"]["connection"], "wireless")
+
+    def test_responsive_interface_without_a_reading_loses_to_one_with_a_reading(self):
+        merged = ra._merge_devices([
+            self.record("258", percent=None, responsive=True, updated=200),
+            self.record("B4", percent=48.0, responsive=True, updated=100),
+        ])
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]["percent"], 48.0)
+
+    def test_freshest_reading_wins_when_neither_interface_is_responsive(self):
+        merged = ra._merge_devices([
+            self.record("B4", percent=48.0, updated=100),
+            self.record("258", percent=90.0, updated=300),
+        ])
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]["percent"], 90.0)
+        self.assertFalse(merged[0]["responsive"])
+
+    def test_colour_remembered_on_one_interface_shows_on_the_other(self):
+        # VARSTORE colour lives in the device's own flash, so it is the
+        # same colour whichever interface is currently live.
+        merged = ra._merge_devices([
+            self.record("258", percent=100.0, responsive=True, last_color=""),
+            self.record("B4", percent=5.0, last_color="0022AA"),
+        ])
+        self.assertEqual(merged[0]["lastColor"], "0022AA")
+
+    def test_unrecognized_pids_are_never_merged_together(self):
+        merged = ra._merge_devices([
+            self.record("1234", percent=10.0, responsive=True),
+            self.record("5678", percent=20.0, responsive=True),
+        ])
+        self.assertEqual(len(merged), 2)
+
+    def test_merged_entry_carries_no_internal_timestamp(self):
+        merged = ra._merge_devices([self.record("E8", percent=50.0, responsive=True)])
+        self.assertNotIn("updatedAt", merged[0])
+        self.assertEqual(merged[0]["id"], ra.device_group("E8"))
 
 
 class ReadBatteryTests(unittest.TestCase):
@@ -299,6 +407,20 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual(payload["devices"][0]["percent"], 50.0)
         self.assertTrue(payload["devices"][0]["responsive"])
         self.assertEqual(payload["devices"][0]["kind"], "mouse")
+        self.assertEqual(payload["devices"][0]["connection"], "wireless")
+        self.assertEqual(payload["devices"][0]["id"], ra.device_group("E8"))
+
+    def test_get_status_relabels_a_device_named_by_an_older_version(self):
+        # State files written before wired/wireless merging stored names
+        # like "Naga V3 Pro (dongle)"; the name now always comes from the
+        # local table so those re-label themselves on the next read.
+        ra._save_state({"devices": {"E8": {"name": "Naga V3 Pro (dongle)",
+                                             "percent": 61.2}}})
+        with mock.patch.object(ra, "discover", return_value=[]), \
+             mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            ra._get_status()
+        devices = json.loads(out.getvalue())["devices"]
+        self.assertEqual(devices[0]["name"], "Naga V3 Pro")
 
     def test_get_status_falls_back_to_last_known_for_sleeping_device(self):
         ra._save_state({"devices": {"E8": {"name": "Naga V3 Pro (dongle)",
@@ -330,6 +452,30 @@ class DispatchTests(unittest.TestCase):
             ra._set_color("E8", "0022aa")
         state = ra._load_state()
         self.assertEqual(state["devices"]["E8"]["lastColor"], "0022AA")
+
+    def test_set_color_remembers_the_colour_for_the_devices_other_interface(self):
+        with mock.patch.object(ra, "discover", return_value=[("/dev/hidraw3", "E8", 0x1F)]), \
+             mock.patch.object(ra, "apply_color", return_value=True):
+            ra._set_color("E8", "0022AA")
+        state = ra._load_state()
+        self.assertEqual(state["devices"]["E7"]["lastColor"], "0022AA")
+
+    def test_get_status_merges_a_devices_wired_and_wireless_interfaces(self):
+        ra._save_state({"devices": {"B4": {"name": "BlackWidow V3 Mini (receiver)",
+                                             "percent": 5.0, "charging": False,
+                                             "lastColor": "0022AA",
+                                             "updatedAt": 1}}})
+        with mock.patch.object(ra, "discover", return_value=[("/dev/hidraw3", "258", 0x1F)]), \
+             mock.patch.object(ra, "read_battery", return_value=(100.0, True)), \
+             mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            ra._get_status()
+        devices = json.loads(out.getvalue())["devices"]
+        self.assertEqual(len(devices), 1)
+        self.assertEqual(devices[0]["name"], "BlackWidow V3 Mini")
+        self.assertEqual(devices[0]["connection"], "wired")
+        self.assertEqual(devices[0]["percent"], 100.0)
+        self.assertTrue(devices[0]["charging"])
+        self.assertEqual(devices[0]["lastColor"], "0022AA")
 
     def test_set_color_exits_nonzero_when_apply_fails(self):
         with mock.patch.object(ra, "discover", return_value=[("/dev/hidraw3", "E8", 0x1F)]), \

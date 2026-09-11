@@ -16,12 +16,17 @@ Panel {
   property var devices: []
   property bool loading: false
   property bool lastFetchFailed: false
-  // pid of the device whose colour-apply Process is currently in flight --
+  // id of the device whose colour-apply Process is currently in flight --
   // VARSTORE writes go to flash, so only one at a time per device and the
   // Apply button for it is disabled while this is set, rather than queuing/
   // coalescing repeated writes the way Hue's slider does for live state.
-  property string applyingPid: ""
-  property var pendingHexByPid: ({})
+  //
+  // Keyed by device id (the physical peripheral), not pid (the interface
+  // it currently answers on): a device's pid changes when its cable goes
+  // in or comes out, and a half-typed colour shouldn't vanish because of
+  // that.
+  property string applyingId: ""
+  property var pendingHexById: ({})
 
   readonly property var lowestPercent: {
     var lowest = null
@@ -39,21 +44,21 @@ Panel {
     return ""
   }
 
-  function hexFor(pid) {
-    if (Object.prototype.hasOwnProperty.call(root.pendingHexByPid, pid)) {
-      return root.pendingHexByPid[pid]
+  function hexFor(id) {
+    if (Object.prototype.hasOwnProperty.call(root.pendingHexById, id)) {
+      return root.pendingHexById[id]
     }
     for (var i = 0; i < root.devices.length; i++) {
-      if (root.devices[i].pid === pid) return root.devices[i].lastColor || ""
+      if (root.devices[i].id === id) return root.devices[i].lastColor || ""
     }
     return ""
   }
 
-  function setHexFor(pid, hex) {
+  function setHexFor(id, hex) {
     var next = {}
-    for (var k in root.pendingHexByPid) next[k] = root.pendingHexByPid[k]
-    next[pid] = hex
-    root.pendingHexByPid = next
+    for (var k in root.pendingHexById) next[k] = root.pendingHexById[k]
+    next[id] = hex
+    root.pendingHexById = next
   }
 
   function refresh() {
@@ -63,11 +68,11 @@ Panel {
     statusProc.running = true
   }
 
-  function applyColor(pid, hex) {
+  function applyColor(id, pid, hex) {
     if (!RazerApi.isValidPid(pid) || !RazerApi.isValidHexColor(hex)) return
-    if (root.applyingPid !== "") return
-    root.applyingPid = pid
-    applyProc.forPid = pid
+    if (root.applyingId !== "") return
+    root.applyingId = id
+    applyProc.forId = id
     applyProc.command = RazerApi.apiCmd(["set-color", pid, hex])
     applyProc.running = true
   }
@@ -117,15 +122,15 @@ Panel {
 
   Process {
     id: applyProc
-    property string forPid: ""
+    property string forId: ""
     onExited: function(exitCode) {
-      if (applyProc.forPid === root.applyingPid) root.applyingPid = ""
+      if (applyProc.forId === root.applyingId) root.applyingId = ""
       if (exitCode === 0) {
         var next = {}
-        for (var k in root.pendingHexByPid) {
-          if (k !== applyProc.forPid) next[k] = root.pendingHexByPid[k]
+        for (var k in root.pendingHexById) {
+          if (k !== applyProc.forId) next[k] = root.pendingHexById[k]
         }
-        root.pendingHexByPid = next
+        root.pendingHexById = next
         root.refresh()
       }
     }
@@ -230,6 +235,16 @@ Panel {
 
                 Text {
                   anchors.verticalCenter: parent.verticalCenter
+                  visible: RazerApi.connectionLabel(modelData.connection).length > 0
+                  text: RazerApi.connectionLabel(modelData.connection)
+                  textFormat: Text.PlainText
+                  color: Qt.darker(root.bar.foreground, 1.4)
+                  font.family: root.bar.fontFamily
+                  font.pixelSize: Style.font.caption
+                }
+
+                Text {
+                  anchors.verticalCenter: parent.verticalCenter
                   visible: !modelData.responsive
                   text: "(asleep — last known)"
                   textFormat: Text.PlainText
@@ -275,7 +290,7 @@ Panel {
                   border.width: 1
                   border.color: Qt.darker(root.bar.foreground, 1.6)
                   color: {
-                    var hex = root.hexFor(modelData.pid)
+                    var hex = root.hexFor(modelData.id)
                     return RazerApi.isValidHexColor(hex) ? ("#" + hex) : "transparent"
                   }
                 }
@@ -286,19 +301,19 @@ Panel {
                   width: Style.space(110)
                   foreground: root.bar.foreground
                   placeholderText: "RRGGBB"
-                  text: root.hexFor(modelData.pid)
-                  onTextEdited: root.setHexFor(modelData.pid, text)
+                  text: root.hexFor(modelData.id)
+                  onTextEdited: root.setHexFor(modelData.id, text)
                 }
 
                 Button {
                   anchors.verticalCenter: parent.verticalCenter
-                  text: root.applyingPid === modelData.pid ? "Applying…" : "Apply"
+                  text: root.applyingId === modelData.id ? "Applying…" : "Apply"
                   bordered: true
                   foreground: root.bar.foreground
-                  enabled: root.applyingPid === "" && RazerApi.isValidHexColor(hexField.text)
+                  enabled: root.applyingId === "" && RazerApi.isValidHexColor(hexField.text)
                   opacity: enabled ? 1 : 0.5
                   tooltipText: "Writes this colour to the device's own memory (VARSTORE) — persists across sleep and reboot with no software running."
-                  onClicked: root.applyColor(modelData.pid, hexField.text)
+                  onClicked: root.applyColor(modelData.id, modelData.pid, hexField.text)
                 }
               }
             }

@@ -8,8 +8,12 @@ required.
 ## Features
 
 - Bar icon showing the lowest battery percentage of any known device
-- Panel listing every detected Razer device: name, battery %, charging
-  state, and a colour picker
+- Panel listing every detected Razer device: name, how it's connected
+  (wired/wireless), battery %, charging state, and a colour picker
+- A device that works both wired and wirelessly is listed **once**, not
+  twice — its two USB ids are merged into a single entry that follows
+  whichever connection is live, so plugging the cable in just flips the
+  label from "wireless" to "wired" instead of adding a second, stale row
 - Colour changes are written with Razer's `VARSTORE` flag, which commits
   them to the device's own flash memory — the colour survives sleep,
   reboot, and unplugging the plugin entirely, with nothing running

@@ -22,6 +22,9 @@ var MAX_NAME_LENGTH = 200
 var PID_RE = /^[0-9A-Fa-f]{1,4}$/
 var HEX_COLOR_RE = /^[0-9A-Fa-f]{6}$/
 var VALID_KINDS = ["keyboard", "mouse", "unknown"]
+// "" is a valid connection: an unrecognized PID isn't in razer_api.py's
+// device table, so there's nothing to claim about how it's attached.
+var VALID_CONNECTIONS = ["wired", "wireless", ""]
 
 function isValidPid(pid) {
   return PID_RE.test(String(pid))
@@ -55,6 +58,14 @@ var KIND_ICONS = {
 
 function deviceIcon(kind) {
   return KIND_ICONS[kind] || KIND_ICONS.unknown
+}
+
+// How a device is attached right now, for the caption next to its name.
+// razer_api.py merges a model's wired and wireless PIDs into one entry and
+// picks whichever interface is live, so this flips from "wireless" to
+// "wired" on its own the next poll after a cable goes in.
+function connectionLabel(connection) {
+  return connection === "wired" || connection === "wireless" ? connection : ""
 }
 
 // First device of the given kind ("keyboard"/"mouse"), or null. The bar
@@ -92,10 +103,17 @@ function parseStatus(text) {
       ? Math.max(0, Math.min(100, d.percent)) : null
     var lastColor = isValidHexColor(d.lastColor) ? String(d.lastColor).toUpperCase() : ""
     var kind = VALID_KINDS.indexOf(d.kind) !== -1 ? d.kind : "unknown"
+    var connection = VALID_CONNECTIONS.indexOf(d.connection) !== -1 ? d.connection : ""
     out.push({
+      // id is the physical peripheral (both PIDs of one model share it);
+      // pid is the interface to address a set-color at. The panel keys its
+      // per-device UI state by id so a pending colour survives the active
+      // pid flipping when a cable is plugged in or pulled.
+      id: sanitizeName(d.id || d.pid).toUpperCase(),
       pid: String(d.pid).toUpperCase(),
       name: sanitizeName(d.name || ("1532:" + d.pid)),
       kind: kind,
+      connection: connection,
       percent: percent,
       charging: !!d.charging,
       lastColor: lastColor,
@@ -120,6 +138,7 @@ if (typeof module !== "undefined" && module.exports) {
     parseStatus: parseStatus,
     formatPercent: formatPercent,
     deviceIcon: deviceIcon,
+    connectionLabel: connectionLabel,
     findByKind: findByKind,
     MAX_JSON_TEXT_LENGTH: MAX_JSON_TEXT_LENGTH
   }

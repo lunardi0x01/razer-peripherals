@@ -55,27 +55,26 @@ TRANSACTIONS = (0x1F, 0x9F, 0x3F, 0x08, 0x00)
 # hardware other than the two this was built against.
 LED_IDS = (0x00, 0x01, 0x04, 0x05)
 
-# Friendly names for the two devices this has actually been tested on.
-# Anything else still works (protocol/discovery below is PID-agnostic) but
-# is shown as a raw "1532:PID" instead -- see README.md's hardware-scope
-# disclosure.
-KNOWN_DEVICES = {
-    "E7": "Naga V3 Pro (wired)",
-    "E8": "Naga V3 Pro (dongle)",
-    "B4": "BlackWidow V3 Mini (receiver)",
-    "258": "BlackWidow V3 Mini (wired)",
-}
-
-# Which physical slot a known PID occupies, so the bar widget can show a
+# The two devices this has actually been tested on. A peripheral that can
+# run both wired and wireless enumerates as two *different* PIDs -- a cable
+# and a dongle/receiver are separate USB devices as far as hidraw is
+# concerned -- so this table is keyed by PID but carries the model name
+# they share. _merge_devices() collapses a model's PIDs back into the one
+# physical peripheral the user actually owns, and "connection" is what
+# tells them which way it's talking right now.
+#
+# "kind" is the physical slot a PID occupies, so the bar widget can show a
 # keyboard reading and a mouse reading side by side rather than just
-# "whichever of the N devices is lowest". An unrecognized PID (see
-# README.md's hardware-scope disclosure) has no slot -- it still shows up
-# in the panel's device list, just not pinned to either bar position.
-DEVICE_KIND = {
-    "E7": "mouse",
-    "E8": "mouse",
-    "B4": "keyboard",
-    "258": "keyboard",
+# "whichever of the N devices is lowest".
+#
+# Anything not listed still works (protocol/discovery below is PID-agnostic)
+# but is shown as a raw "1532:PID" with no connection label, and is never
+# merged with anything -- see README.md's hardware-scope disclosure.
+KNOWN_DEVICES = {
+    "E7": {"model": "Naga V3 Pro", "kind": "mouse", "connection": "wired"},
+    "E8": {"model": "Naga V3 Pro", "kind": "mouse", "connection": "wireless"},
+    "B4": {"model": "BlackWidow V3 Mini", "kind": "keyboard", "connection": "wireless"},
+    "258": {"model": "BlackWidow V3 Mini", "kind": "keyboard", "connection": "wired"},
 }
 
 STATUS_SUCCESS = 0x02
@@ -194,11 +193,35 @@ def discover():
 
 
 def device_name(pid):
-    return KNOWN_DEVICES.get(pid, "1532:%s" % pid)
+    info = KNOWN_DEVICES.get(pid)
+    return info["model"] if info else "1532:%s" % pid
 
 
 def device_kind(pid):
-    return DEVICE_KIND.get(pid, "unknown")
+    info = KNOWN_DEVICES.get(pid)
+    return info["kind"] if info else "unknown"
+
+
+def device_connection(pid):
+    """"wired"/"wireless", or "" for a PID that isn't in the table."""
+    info = KNOWN_DEVICES.get(pid)
+    return info["connection"] if info else ""
+
+
+def device_group(pid):
+    """Stable id for the physical peripheral a PID belongs to.
+
+    Both of a model's PIDs map to the same id; an unrecognized PID gets an
+    id of its own so it is never merged with anything.
+    """
+    return device_name(pid)
+
+
+def group_pids(pid):
+    """Every known PID belonging to the same physical device as `pid`."""
+    group = device_group(pid)
+    siblings = sorted(p for p, info in KNOWN_DEVICES.items() if info["model"] == group)
+    return siblings or [pid]
 
 
 def read_battery(path, txn):
@@ -310,12 +333,91 @@ def _save_state(state):
 # ---------------------------------------------------------------------------
 # Dispatch ops
 
+def _device_record(pid, entry, responsive):
+    """One PID's view of a device, before sibling PIDs are merged in.
+
+    Everything but the battery reading comes from the local table rather
+    than the settings file, so a state file written by an older version
+    (which stored names like "Naga V3 Pro (dongle)") re-labels itself
+    instead of keeping a name format that no longer exists.
+    """
+    percent = entry.get("percent")
+    if not isinstance(percent, (int, float)) or isinstance(percent, bool):
+        percent = None
+    updated = entry.get("updatedAt")
+    if not isinstance(updated, (int, float)) or isinstance(updated, bool):
+        updated = 0
+    color = entry.get("lastColor")
+    return {
+        "id": device_group(pid),
+        "pid": pid,
+        "name": device_name(pid),
+        "kind": device_kind(pid),
+        "connection": device_connection(pid),
+        "percent": percent,
+        "charging": bool(entry.get("charging", False)),
+        "lastColor": color if isinstance(color, str) else "",
+        "responsive": responsive,
+        "updatedAt": updated,
+    }
+
+
+def _activity_rank(record):
+    # Which of a model's interfaces should speak for it: one that answered
+    # just now beats a remembered reading, a real percentage beats a blank
+    # one, and the cable beats the dongle when both are live -- plugging in
+    # is the thing the user just did, so that's the state to reflect.
+    return (
+        1 if record["responsive"] else 0,
+        1 if record["percent"] is not None else 0,
+        1 if record["connection"] == "wired" else 0,
+        record["updatedAt"],
+    )
+
+
+def _merge_devices(records):
+    """Collapse a model's wired + wireless PIDs into one panel entry.
+
+    Plugging a wireless keyboard in mid-session enumerates a second,
+    different PID while the receiver is still present and still remembered
+    at whatever charge it last reported -- listing both shows the same
+    peripheral twice, one of them stale (the exact "receiver still says 5%
+    while the cable says 100%" confusion this fixes). The live interface
+    wins; a sibling's remembered colour is carried over, since VARSTORE
+    colour lives in the device's own flash and is the same colour
+    whichever way it's connected.
+
+    An unrecognized PID has an id of its own (see device_group), so this
+    never merges two devices it doesn't actually know to be one.
+    """
+    groups = {}
+    order = []
+    for record in records:
+        if record["id"] not in groups:
+            groups[record["id"]] = []
+            order.append(record["id"])
+        groups[record["id"]].append(record)
+
+    merged = []
+    for group_id in order:
+        members = groups[group_id]
+        winner = dict(max(members, key=_activity_rank))
+        if not winner["lastColor"]:
+            for member in members:
+                if member["lastColor"]:
+                    winner["lastColor"] = member["lastColor"]
+                    break
+        winner.pop("updatedAt", None)
+        merged.append(winner)
+    return merged
+
+
 def _get_status():
     state = _load_state()
     known = state.get("devices", {}) if isinstance(state.get("devices"), dict) else {}
     responsive = {pid: (path, txn) for path, pid, txn in discover()}
 
-    devices = []
+    records = []
     seen = set()
     for pid, (path, txn) in responsive.items():
         seen.add(pid)
@@ -328,32 +430,17 @@ def _get_status():
                 "percent": round(percent, 1),
                 "charging": charging,
                 "lastColor": entry.get("lastColor", ""),
+                "updatedAt": int(time.time()),
             }
             known[pid] = entry
-        devices.append({
-            "pid": pid,
-            "name": device_name(pid),
-            "kind": device_kind(pid),
-            "percent": entry.get("percent"),
-            "charging": entry.get("charging", False),
-            "lastColor": entry.get("lastColor", ""),
-            "responsive": reading is not None,
-        })
+        records.append(_device_record(pid, entry, reading is not None))
 
     # Known-but-currently-asleep devices still show their last reading, so
     # the panel doesn't blank out just because a wireless peripheral is idle.
     for pid, entry in known.items():
         if pid in seen or not isinstance(entry, dict):
             continue
-        devices.append({
-            "pid": pid,
-            "name": entry.get("name", device_name(pid)),
-            "kind": device_kind(pid),
-            "percent": entry.get("percent"),
-            "charging": entry.get("charging", False),
-            "lastColor": entry.get("lastColor", ""),
-            "responsive": False,
-        })
+        records.append(_device_record(pid, entry, False))
 
     try:
         state["devices"] = known
@@ -361,7 +448,7 @@ def _get_status():
     except OSError:
         pass
 
-    print(json.dumps({"devices": devices}))
+    print(json.dumps({"devices": _merge_devices(records)}))
 
 
 def _set_color(pid, hex_color):
@@ -384,10 +471,15 @@ def _set_color(pid, hex_color):
     devices = state.get("devices")
     if not isinstance(devices, dict):
         devices = {}
-    entry = devices.get(pid) if isinstance(devices.get(pid), dict) else {}
-    entry["name"] = device_name(pid)
-    entry["lastColor"] = hex_color
-    devices[pid] = entry
+    # The colour is committed to the device's own flash, so it's the same
+    # colour whichever interface it was written through -- remember it for
+    # the model's other PID too, or the panel's swatch would come up empty
+    # the moment the user plugs in the cable.
+    for sibling in group_pids(pid):
+        entry = devices.get(sibling) if isinstance(devices.get(sibling), dict) else {}
+        entry["name"] = device_name(sibling)
+        entry["lastColor"] = hex_color
+        devices[sibling] = entry
     state["devices"] = devices
     try:
         _save_state(state)
