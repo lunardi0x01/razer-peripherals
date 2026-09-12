@@ -312,7 +312,7 @@ Panel {
                   foreground: root.bar.foreground
                   enabled: root.applyingId === "" && RazerApi.isValidHexColor(hexField.text)
                   opacity: enabled ? 1 : 0.5
-                  tooltipText: "Writes this colour to the device's own memory — persists across sleep and reboot with no software running."
+                  tooltipText: "Saves this colour onto the device itself"
                   onClicked: root.applyColor(modelData.id, modelData.pid, hexField.text)
                 }
               }
@@ -321,7 +321,7 @@ Panel {
 
           Text {
             width: parent.width
-            text: "Apply saves the colour to the device itself — it survives reboot with nothing running. It's a flash write, not a preview, so pick a shade and apply it once."
+            text: "Apply saves the colour onto the device, where it stays until you change it. It's a flash write, not a preview — pick a shade and apply it once."
             textFormat: Text.PlainText
             wrapMode: Text.WordWrap
             color: Qt.darker(root.bar.foreground, 1.6)
