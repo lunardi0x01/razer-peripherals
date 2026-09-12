@@ -307,12 +307,12 @@ Panel {
 
                 Button {
                   anchors.verticalCenter: parent.verticalCenter
-                  text: root.applyingId === modelData.id ? "Saving…" : "Save to device"
+                  text: root.applyingId === modelData.id ? "Applying…" : "Apply"
                   bordered: true
                   foreground: root.bar.foreground
                   enabled: root.applyingId === "" && RazerApi.isValidHexColor(hexField.text)
                   opacity: enabled ? 1 : 0.5
-                  tooltipText: "Writes to the device's flash memory — not a live preview"
+                  tooltipText: "Save to device"
                   onClicked: root.applyColor(modelData.id, modelData.pid, hexField.text)
                 }
               }
@@ -321,7 +321,7 @@ Panel {
 
           Text {
             width: parent.width
-            text: "Saving writes the colour onto the device's flash memory."
+            text: "Apply saves the colour onto the device's flash memory."
             textFormat: Text.PlainText
             wrapMode: Text.WordWrap
             color: Qt.darker(root.bar.foreground, 1.6)
