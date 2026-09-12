@@ -7,7 +7,9 @@ required.
 
 ## Features
 
-- Bar icon showing the lowest battery percentage of any known device
+- Bar icons for your keyboard and mouse, each turning red on its own when
+  that device alone drops below 25% — a low mouse is never masked by a
+  healthy keyboard. Exact percentages are in the tooltip
 - Panel listing every detected Razer device: name, how it's connected
   (wired/wireless), battery %, charging state, and a colour picker
 - A device that works both wired and wirelessly is listed **once**, not
@@ -41,7 +43,7 @@ devices accept `VARSTORE` writes and silently discard them — if a colour
 change doesn't stick after a sleep cycle, that's the likely reason, not a
 bug in this plugin.
 
-**Needs a one-time udev rule** — install it before pairing anything:
+**Needs a one-time udev rule** — install it before anything else:
 
 ```sh
 sudo cp udev/99-razer-hidraw.rules /etc/udev/rules.d/
@@ -81,9 +83,15 @@ will fail.
 omarchy plugin add https://github.com/lunardi0x01/razer-peripherals.git --enable
 ```
 
-Nothing to pair — the panel discovers connected devices live on every open,
-the same way as `razer_persist.py scan`. If a wireless device shows nothing,
-wake it first (press a key / move the mouse).
+Nothing to pair, and no account or key to enter anywhere — devices are
+discovered live on every read rather than from a saved list. If a wireless
+device shows nothing, wake it first (press a key / move the mouse).
+
+The widget can be moved to whichever section of the bar you prefer:
+
+```sh
+omarchy plugin enable lunardi0x01.razer-peripherals --section right
+```
 
 ## Remove
 
@@ -102,9 +110,11 @@ flash; that requires applying a new colour to overwrite it.
 - Settings (last known battery %, last-applied colour per device — no
   credentials, since there's nothing to authenticate) live in
   `~/.config/omarchy/settings/razer-peripherals.json`.
-- The panel polls every 20 seconds while open, and not at all while closed.
-  Battery reads are cheap and safe to poll; colour writes never happen on a
-  timer — see the flash-write warning above.
+- Battery is read every 20 seconds while the panel is open, plus once at
+  startup and every 5 minutes in the background, so the bar icons aren't
+  stale when you glance at them. Battery reads are cheap and safe to poll;
+  colour writes never happen on a timer — see the flash-write warning
+  above.
 - No brightness or lighting-effect control in this version — static colour
   only, matching the two commands this protocol has actually been
   exercised against.
